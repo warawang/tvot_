@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <style>
+      html {
+        font-family: "맑은고딕", "Malgun Gothic", "Nanum Gothic", "NanumGothic", "NanumGothicOTF", "나눔고딕", "돋움","Dotum","Verdana","AppleGothic","sans-serif";
+        font-size: 1em;
+        color: #fff;
+        background: #000;
+        overflow: hidden;
+      }
+      body {
+        margin: 0;
+      }
+
+      #captionFrame {
+        position: fixed;
+        background: rgba(0, 0, 0, 0.45);
+        width: 100%;
+        height: 62px;
+        bottom: 0;
+        text-align: left;
+      }
+
+      #captionFrame .wapper {
+        margin-right: 135px;
+        height: 62px;
+      }
+
+      #captionFrame .wapper .notice {
+        float: left;
+        width: 70%;
+        height: 62px;
+      }
+
+      #captionFrame .wapper .notice p {
+        margin: 0;
+        font-size: 1.5em;
+        padding-left: 20px;
+        line-height: 62px;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        overflow: hidden;
+      }
+
+      #captionFrame .wapper .caster {
+        float: right;
+        width: 30%;
+        height: 62px;
+        bottom: 0;
+        font-size: 1.5em;
+        line-height: 58px;
+        text-align: right;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        overflow: hidden;
+      }
+
+      #ciFrame {
+        position: fixed;
+        width: 143px;
+        height: 150px;
+        bottom: 15px;
+        right: 18px;
+        background-image: url(./ci2.png);
+        background-repeat: no-repeat;
+        background-size: 143px 150px;
+      }
+
+    </style>
+    <script type='text/javascript' src='https://ajax.googleapis.com/ajax/libs/jquery/1.11.3/jquery.min.js'></script>
+    <script>
+      // Utils
+      Array.prototype.shuffle = function() {
+        var j, x, i;
+        for (i = this.length; i; i -= 1) {
+          j = Math.floor(Math.random() * i);
+          x = this[i - 1];
+          this[i - 1] = this[j];
+          this[j] = x;
+        }
+      };
+
+      // Tv
+      var tv = tv || function() {
+        var debug = false;
+        var self = this;
+        var player;
+        var playerReady = false;
+        var playlist = [];
+        var nowVideoId;
+
+        var init = function(playerFrameId) {
+          player = new YT.Player(playerFrameId, {
+            width: $(document).width(),
+            height: $(document).height(),
+            playerVars: {controls: debug ? 1 : 0, autoplay: 0, loop: 0, modestbranding: 0, cc_load_policy: 0, iv_load_policy: 3, rel: 0},
+            events: {
+              'onReady': onPlayerReady,
+              'onError': onPlayerError,
+              'onStateChange': onPlayerStateChange
+            }
+          });
+
+          // Hide player.
+          hidePlayer();
+        };
+
+        /**
+         * Event handler
+         */
+        var onPlayerReady = function(event) {
+          playerReady = true;
+
+          // playerVars 로 설정 불가한 추가 옵션 지정.
+          player.setPlaybackQuality('highres');
+
+          // Fitting player
+          $(window).resize(function() {
+            if(!playerReady) return;
+            $('#playerFrame')
+              .width($(window).width())
+              .height($(window).height());
+          });
+
+          // Load playlist
+          pushPlaylist();
+
+          // 듀레이션 체크
+          setInterval(function(){
+            onChangePosition(player.getCurrentTime() || -1);
+          }, 1000);
+        };
+
+        /*
+        -1 – unstarted
+        0 – ended
+        1 – playing
+        2 – paused
+        3 – buffering
+        5 – video cued
+         */
+        var onPlayerStateChange = function(event) {
+          console.log('onPlayerStateChange : '+event.data);
+          switch(event.data) {
+            case YT.PlayerState.UNSTARTED:
+              // 설정된 VideoId 가 없을 경우 발생
+              // 또는 에러 등으로 영상 재생을 실패했을 경우.
+            break;
+
+            case YT.PlayerState.ENDED:
+              next();
+            break;
+
+            case YT.PlayerState.PLAYING:
+              showPlayer();
+            break;
+
+            case YT.PlayerState.PAUSED:
+            break;
+
+            case YT.PlayerState.BUFFERING:
+            break;
+
+            case YT.PlayerState.VIDEOCUED:
+              // 큐잉하는 경우가 없어 이 이벤트는 발생하지 않음
+              // 혹시 모르니...
+              player.playVideo();
+            break;
+
+            default:
+            break;
+          }
+        };
+
+        var onChangePosition = function(position) {
+          // 5분 이상의 동영상은 5분까지만 재생한다.
+          if(position > (debug ? 5 : 300)) {
+            next();
+          }
+        }
+
+        var onPlayerError = function(event) {
+          next();
+        };
+
+        var onPushPlaylist = function() {
+          var playerStatus = player.getPlayerState();
+
+          // 플레이어가 엄춘 상태면
+          if(playerStatus == -1 || playerStatus == 0 || playerStatus == 5) {
+            next();
+          }
+        };
+
+        /**
+         * Private method
+         */
+        var pushPlaylist = function() {
+          $.ajax({
+            url:'https://vty00ljzw9.execute-api.us-west-2.amazonaws.com/prod/list',
+          }).done(function(data) {
+            //data.youtube.shuffle();
+            data.youtube.forEach(function(row, index) {
+              //if(row.info == nowVideoId && index ==0) return;
+              if(row.info == nowVideoId) return;
+
+              playlist.push(row);
+            });
+            onPushPlaylist();
+          }).fail(function(data, status) {
+            // 실패하면, 1분 후 재시도
+            setTimeout(function() {
+              pushPlaylist();
+            }, 1000);
+          });
+        };
+
+        var showPlayer = function() {
+          $(player.getIframe()).fadeIn('slow');
+        }
+
+        var hidePlayer = function() {
+          $(player.getIframe()).fadeOut('slow');
+        }
+
+        var setCaster = function(caster) {
+          $('#captionFrame .caster').text('@'+caster);
+        }
+
+        var next = function() {
+          nowVideoId = playlist[0].info;
+          player.loadVideoById(nowVideoId, 0, "large");
+          setCaster(playlist[0].caster);
+          console.log('play :' + nowVideoId);
+
+          // remove first element.
+          playlist.shift();
+
+          if(playlist.length <= 1) {
+            pushPlaylist();
+          }
+        }
+
+        // define public method.
+        return {
+          init : init
+        }
+
+      }();
+
+      // Load youtube player.
+      var tag = document.createElement('script');
+      tag.src = "https://www.youtube.com/iframe_api";
+      var firstScriptTag = document.getElementsByTagName('script')[0];
+      firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+
+      // Youtube iframe api 스트립트내에서 호출되는 이벤트 함수.
+      function onYouTubeIframeAPIReady() {
+        tv.init('playerFrame');
+      }
+
+    </script>
+  </head>
+  <body>
+    <div id="playerFrame"></div>
+    <div id="captionFrame">
+      <div class='wapper'>
+        <div class="notice"><p>슬랙 /tv 유튜브주소</p></div>
+        <div class="caster"></div>
+      </div>
+    </div>
+    <div id="ciFrame"></div>
+
+  </body>
+</html>
