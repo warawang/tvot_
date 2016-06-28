@@ -14,31 +14,40 @@
         margin: 0;
       }
 
+      #debug {
+        position: fixed;
+        left: 0;
+        top: 0;
+        background: rgba(255, 255, 255, 0.35);
+        color: #000;
+        display: none;
+      }
+
       #captionFrame {
         position: fixed;
         background: rgba(0, 0, 0, 0.45);
         width: 100%;
-        height: 62px;
+        height: 80px;
         bottom: 0;
         text-align: left;
       }
 
       #captionFrame .wapper {
-        margin-right: 135px;
-        height: 62px;
+        margin-right: 145px;
+        height: 80px;
       }
 
       #captionFrame .wapper .notice {
         float: left;
         width: 70%;
-        height: 62px;
+        height: 80px;
       }
 
       #captionFrame .wapper .notice p {
         margin: 0;
-        font-size: 1.5em;
+        font-size: 2em;
         padding-left: 20px;
-        line-height: 62px;
+        line-height: 80px;
         white-space: nowrap;
         text-overflow: ellipsis;
         overflow: hidden;
@@ -47,10 +56,10 @@
       #captionFrame .wapper .caster {
         float: right;
         width: 30%;
-        height: 62px;
+        height: 80px;
         bottom: 0;
-        font-size: 1.5em;
-        line-height: 58px;
+        font-size: 2em;
+        line-height: 76px;
         text-align: right;
         white-space: nowrap;
         text-overflow: ellipsis;
@@ -61,8 +70,8 @@
         position: fixed;
         width: 143px;
         height: 150px;
-        bottom: 15px;
-        right: 18px;
+        bottom: 25px;
+        right: 22px;
         background-image: url(./ci2.png);
         background-repeat: no-repeat;
         background-size: 143px 150px;
@@ -90,12 +99,13 @@
         var playerReady = false;
         var playlist = [];
         var nowVideoId;
+        var chkNewRange = 1;
 
         var init = function(playerFrameId) {
           player = new YT.Player(playerFrameId, {
             width: $(document).width(),
             height: $(document).height(),
-            playerVars: {controls: debug ? 1 : 0, autoplay: 0, loop: 0, modestbranding: 0, cc_load_policy: 0, iv_load_policy: 3, rel: 0},
+            playerVars: {controls: debug ? 1 : 0, autoplay: 1, loop: 0, modestbranding: 0, cc_load_policy: 0, iv_load_policy: 3, rel: 0},
             events: {
               'onReady': onPlayerReady,
               'onError': onPlayerError,
@@ -115,6 +125,7 @@
 
           // playerVars 로 설정 불가한 추가 옵션 지정.
           player.setPlaybackQuality('highres');
+          //player.setPlaybackQuality('medium');
 
           // Fitting player
           $(window).resize(function() {
@@ -129,8 +140,14 @@
 
           // 듀레이션 체크
           setInterval(function(){
+            onTick();
             onChangePosition(player.getCurrentTime() || -1);
           }, 1000);
+
+          // 새로운 컨텐츠 확인
+          setInterval(function(){
+            chkNew();
+          }, 60000);
         };
 
         /*
@@ -142,7 +159,8 @@
         5 – video cued
          */
         var onPlayerStateChange = function(event) {
-          console.log('onPlayerStateChange : '+event.data);
+          //console.log('onPlayerStateChange : '+event.data);
+          if(debug) $('#debug').text(event.data);
           switch(event.data) {
             case YT.PlayerState.UNSTARTED:
               // 설정된 VideoId 가 없을 경우 발생
@@ -174,12 +192,25 @@
           }
         };
 
+
+        // 1초마다 발생하는 이벤트. 시간에 따른 볼륨 컨트롤 등에 사용
+        var onTick = function() {
+          // 점심시간에 볼륨을 올린다.
+          var now = new Date();
+          if((now.getHours() >= 11 && now.getMinutes() >= 30) && (now.getHours() <= 12 && now.getMinutes() <= 29)) {
+            player.setVolume(100);
+          } else {
+            player.setVolume(60);
+          }
+        };
+
         var onChangePosition = function(position) {
           // 5분 이상의 동영상은 5분까지만 재생한다.
-          if(position > (debug ? 5 : 300)) {
+          //  if(position > (debug ? 5 : 300)) {
+          if(position > 300) {
             next();
           }
-        }
+        };
 
         var onPlayerError = function(event) {
           next();
@@ -201,9 +232,10 @@
           $.ajax({
             url:'https://vty00ljzw9.execute-api.us-west-2.amazonaws.com/prod/list',
           }).done(function(data) {
-            //data.youtube.shuffle();
+            // 셔플
+            data.youtube.shuffle();
+
             data.youtube.forEach(function(row, index) {
-              //if(row.info == nowVideoId && index ==0) return;
               if(row.info == nowVideoId) return;
 
               playlist.push(row);
@@ -213,21 +245,51 @@
             // 실패하면, 1분 후 재시도
             setTimeout(function() {
               pushPlaylist();
-            }, 1000);
+            }, 60000);
+          });
+        };
+
+        // 최근 등록된 새로운 컨텐츠가 있는지 확인한다.
+        var chkNew = function() {
+          $.ajax({
+            url:'https://vty00ljzw9.execute-api.us-west-2.amazonaws.com/prod/list?limit='+(60000*chkNewRange),
+          }).done(function(data) {
+            chkNewRange = 1;
+
+            if(data.youtube.length <= 0) {
+              // 새로운 컨텐츠가 없으면
+              console.log('new content not found.');
+              return;
+            }
+
+            var nowTs = new Date().getTime();
+            data.youtube.forEach(function(row, index) {
+              console.log('add new content :'+ row.info);
+              // 새로 등록된 목록은 컨텐츠 상위로 등록
+              playlist.unshift({
+                info: row.info,
+                caster: row.caster,
+                createAt: row.createAt
+              });
+            });
+
+            onPushPlaylist();
+          }).fail(function(data, status) {
+            chkNewRange++;
           });
         };
 
         var showPlayer = function() {
           $(player.getIframe()).fadeIn('slow');
-        }
+        };
 
         var hidePlayer = function() {
           $(player.getIframe()).fadeOut('slow');
-        }
+        };
 
         var setCaster = function(caster) {
           $('#captionFrame .caster').text('@'+caster);
-        }
+        };
 
         var next = function() {
           nowVideoId = playlist[0].info;
@@ -241,12 +303,12 @@
           if(playlist.length <= 1) {
             pushPlaylist();
           }
-        }
+        };
 
         // define public method.
         return {
           init : init
-        }
+        };
 
       }();
 
@@ -271,6 +333,7 @@
         <div class="caster"></div>
       </div>
     </div>
+    <div id="debug"></div>
     <div id="ciFrame"></div>
 
   </body>
